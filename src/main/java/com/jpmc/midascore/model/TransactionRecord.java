@@ -23,6 +23,9 @@ public class TransactionRecord {
     private BigDecimal amount;
 
     @Column(nullable = false)
+    private BigDecimal incentive;
+
+    @Column(nullable = false)
     private LocalDateTime timestamp;
 
     // Constructors, Getters, and Setters

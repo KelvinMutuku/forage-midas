@@ -1,8 +1,6 @@
 package com.jpmc.midascore.kafka;
 
-import com.jpmc.midascore.model.Transaction;
-import com.jpmc.midascore.model.TransactionRecord;
-import com.jpmc.midas H2 Integrationcore.model.User;
+import com.jpmc.midascore.model.*;
 import com.jpmc.midascore.repository.TransactionRepository;
 import com.jpmc.midascore.repository.UserRepository;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -10,6 +8,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -23,6 +25,9 @@ public class TransactionListener {
 
     @Autowired
     private TransactionRepository transactionRepository;
+
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final String INCENTIVE_API_URL = "http://localhost:8080/incentive";
 
     @KafkaListener(topics = "${kafka.topic.transactions}", groupId = "midas-core-group")
     @Transactional
@@ -41,18 +46,29 @@ public class TransactionListener {
                 sender.setBalance(sender.getBalance().subtract(amount));
                 recipient.setBalance(recipient.getBalance().add(amount));
 
+                // Call Incentive API
+                HttpEntity<Transaction> request = new HttpEntity<>(transaction);
+                ResponseEntity<Incentive> response = restTemplate.exchange(
+                    INCENTIVE_API_URL, HttpMethod.POST, request, Incentive.class);
+                
+                BigDecimal incentiveAmount = response.getBody().getAmount();
+                recipient.setBalance(recipient.getBalance().add(incentiveAmount));
+
+                // Save updated balances
                 userRepository.save(sender);
                 userRepository.save(recipient);
 
+                // Record transaction with incentive
                 TransactionRecord transactionRecord = new TransactionRecord();
                 transactionRecord.setSender(sender);
                 transactionRecord.setRecipient(recipient);
                 transactionRecord.setAmount(amount);
+                transactionRecord.setIncentive(incentiveAmount);
                 transactionRecord.setTimestamp(LocalDateTime.now());
 
                 transactionRepository.save(transactionRecord);
 
-                System.out.println("Transaction recorded: " + transaction);
+                System.out.println("Transaction recorded with incentive: " + transaction);
             } else {
                 System.out.println("Transaction rejected: Insufficient funds for " + transaction.getSenderId());
             }
